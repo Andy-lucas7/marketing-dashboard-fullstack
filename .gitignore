@@ -39,3 +39,5 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+Add-Content .gitignore "`n# Python`nvenv/`n__pycache__/`n*.pyc"
