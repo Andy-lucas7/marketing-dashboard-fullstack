@@ -12,8 +12,13 @@ import {
 } from "lucide-react";
 
 // ============================================================================
-// 1. TYPES & API INTEGRATION (Real Backend)
+// 1. CONFIGURATION & TYPES
 // ============================================================================
+
+// 🌟 PORTFOLIO DEPLOYMENT FLAG 🌟
+// Set to TRUE for Vercel deployment so clients can interact with the app instantly without needing a backend.
+// Set to FALSE when running locally with the FastAPI & PostgreSQL backend.
+const USE_MOCK_API = true; 
 
 type DateRange = "7d" | "30d" | "12m";
 const PLATFORMS = ["Google", "Facebook", "TikTok"] as const;
@@ -36,21 +41,55 @@ type Campaign = {
   cpa: number;
 };
 
-// Fetch real data from FastAPI Backend
+// ============================================================================
+// 2. DATA LAYER (Real API vs Mock Fallback for Vercel)
+// ============================================================================
+
+// Mock Generator for Vercel Live Demo
+function generateMockData(range: DateRange) {
+  const labels = range === "7d" ? ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] :
+                 range === "30d" ? Array.from({ length: 30 }).map((_, i) => `Day ${i + 1}`) :
+                 ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+  const timeSeries: RawTimeSeries[] = labels.map(label => ({
+    name: label,
+    Google: { rev: Math.floor(2000 + Math.random() * 3000), spend: Math.floor(1000 + Math.random() * 1000) },
+    Facebook: { rev: Math.floor(1500 + Math.random() * 2500), spend: Math.floor(800 + Math.random() * 800) },
+    TikTok: { rev: Math.floor(800 + Math.random() * 1500), spend: Math.floor(400 + Math.random() * 600) },
+  }));
+
+  const campaigns: Campaign[] = Array.from({ length: 35 }).map((_, i) => ({
+    id: i + 1,
+    name: `Campaign ${i + 1} - ${["Retargeting", "Awareness", "Promo", "Conversion"][i % 4]}`,
+    platform: PLATFORMS[i % 3],
+    status: (Math.random() > 0.8 ? "Paused" : "Active") as "Active" | "Paused",
+    budget: Math.floor(50 + Math.random() * 450),
+    conversions: Math.floor(10 + Math.random() * 990),
+    cpa: Number((2 + Math.random() * 18).toFixed(2))
+  }));
+
+  return { timeSeries, campaigns };
+}
+
 const fetchDashboardData = async (range: DateRange) => {
+  if (USE_MOCK_API) {
+    return new Promise<{ timeSeries: RawTimeSeries[], campaigns: Campaign[] }>((resolve) => {
+      setTimeout(() => resolve(generateMockData(range)), 800); // Simulate network latency
+    });
+  }
+
   try {
     const res = await fetch(`http://localhost:8000/api/dashboard-metrics?range=${range}`);
     if (!res.ok) throw new Error("Network response was not ok");
     return await res.json() as { timeSeries: RawTimeSeries[], campaigns: Campaign[] };
   } catch (error) {
     console.error("API Fetch Error:", error);
-    // Return empty fallback on error to prevent crashes during portfolio demos
     return { timeSeries: [], campaigns: [] };
   }
 };
 
-// Simulate PUT request to FastAPI Backend
 const updateCampaignAPI = async (id: number, budget: number, status: string) => {
+  if (USE_MOCK_API) return; // Ignore network request for mock demo
   try {
     await fetch(`http://localhost:8000/api/campaigns/${id}`, {
       method: 'PUT',
@@ -63,7 +102,7 @@ const updateCampaignAPI = async (id: number, budget: number, status: string) => 
 };
 
 // ============================================================================
-// 2. REACT BITS & ANIMATED COMPONENTS (Premium UI layer)
+// 3. REACT BITS & ANIMATED COMPONENTS
 // ============================================================================
 
 function FlickeringGrid() {
@@ -137,7 +176,7 @@ function SpotlightCard({ children, className = "" }: { children: React.ReactNode
 }
 
 // ============================================================================
-// 3. SUB-COMPONENTS & ADVANCED FEATURES
+// 4. SUB-COMPONENTS
 // ============================================================================
 
 const GlassTooltip = ({ active, payload, label }: any) => {
@@ -220,7 +259,7 @@ function CampaignTable({ campaigns, isLoading, onEdit }: { campaigns: Campaign[]
   const totalPages = Math.ceil(sorted.length / itemsPerPage) || 1;
   const paginated = sorted.slice((page - 1) * itemsPerPage, page * itemsPerPage);
 
-  useEffect(() => { setPage(1) }, [campaigns]); // Reset page when filters change
+  useEffect(() => { setPage(1) }, [campaigns]); 
 
   if (isLoading) {
     return (
@@ -304,7 +343,7 @@ function CampaignTable({ campaigns, isLoading, onEdit }: { campaigns: Campaign[]
 }
 
 // ============================================================================
-// 4. MAIN PAGE ORCHESTRATOR
+// 5. MAIN PAGE ORCHESTRATOR
 // ============================================================================
 
 export default function MarketingDashboard() {
@@ -313,13 +352,9 @@ export default function MarketingDashboard() {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   
-  // Cross-Filtering State
   const [platformFilter, setPlatformFilter] = useState<Platform | null>(null);
-  
-  // CRUD State
   const [editingCampaign, setEditingCampaign] = useState<Campaign | null>(null);
 
-  // Fetch Data (Real API)
   useEffect(() => {
     let isMounted = true;
     setIsLoading(true);
@@ -334,17 +369,12 @@ export default function MarketingDashboard() {
     return () => { isMounted = false; };
   }, [dateRange]);
 
-  // Handle CRUD Save Optimistically and fire PUT request
   const handleSaveCampaign = async (updated: Campaign) => {
-    // 1. Optimistic UI update
     setCampaigns(prev => prev.map(c => c.id === updated.id ? updated : c));
     setEditingCampaign(null);
-    
-    // 2. Fire background network request to API
     await updateCampaignAPI(updated.id, updated.budget, updated.status);
   };
 
-  // Derive Filtered & Aggregated Data for Components
   const filteredCampaigns = useMemo(() => {
     return platformFilter ? campaigns.filter(c => c.platform === platformFilter) : campaigns;
   }, [campaigns, platformFilter]);
@@ -376,7 +406,6 @@ export default function MarketingDashboard() {
     ];
   }, [areaData, platformFilter]);
 
-  // ROAS Bar Chart unaffected by filter so user can see & select others
   const barData = useMemo(() => {
      return PLATFORMS.map(plat => {
         const rev = timeSeries.reduce((acc, curr) => acc + curr[plat].rev, 0);
@@ -385,7 +414,6 @@ export default function MarketingDashboard() {
      });
   }, [timeSeries]);
 
-  // Header Dropdown State
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -404,7 +432,6 @@ export default function MarketingDashboard() {
           <div className="flex items-center gap-6">
             <BlurText text="Marketing Analytics" className="text-xl font-semibold tracking-tight text-white" />
             
-            {/* Global Filter Indicator */}
             {platformFilter && (
               <motion.button 
                 initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }}
@@ -446,7 +473,6 @@ export default function MarketingDashboard() {
       <main className="p-6">
         <div className="mx-auto max-w-7xl space-y-6">
           
-          {/* KPIs */}
           {isLoading ? (
             <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
               {[1, 2, 3, 4].map(i => (
@@ -474,7 +500,6 @@ export default function MarketingDashboard() {
             </div>
           )}
 
-          {/* CHARTS */}
           {isLoading ? (
             <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
               <div className="lg:col-span-2 h-[380px] rounded-xl border border-slate-800 bg-slate-900/30 p-6 flex flex-col animate-pulse">
@@ -537,12 +562,10 @@ export default function MarketingDashboard() {
             </div>
           )}
 
-          {/* TABLE */}
           <CampaignTable campaigns={filteredCampaigns} isLoading={isLoading} onEdit={setEditingCampaign} />
         </div>
       </main>
 
-      {/* CRUD MODAL */}
       {editingCampaign && (
         <EditCampaignModal campaign={editingCampaign} onClose={() => setEditingCampaign(null)} onSave={handleSaveCampaign} />
       )}
